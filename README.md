@@ -2,6 +2,8 @@
 
 Shell-based AWS audit helper for checking common resources across AWS regions, defaulting to `us-east-1` and `us-east-2`.
 
+The repo also includes a focused S3 CloudWatch script for inspecting one bucket's storage and request metrics.
+
 It is designed for a practical cleanup workflow:
 - compare resources across one or more regions
 - spot likely billable resources first
@@ -101,6 +103,18 @@ Show available targets:
 make help
 ```
 
+Run the S3 CloudWatch bucket report:
+
+```bash
+make s3-cloudwatch BUCKET=example.com
+```
+
+Override the request-metrics region:
+
+```bash
+make s3-cloudwatch BUCKET=example.com REGION=us-east-2
+```
+
 ## AWS Services Covered
 
 The script currently checks:
@@ -124,6 +138,29 @@ The script currently checks:
 - CloudWatch Logs
 - Resource Groups Tagging API
 
+## S3 CloudWatch Script
+
+Use [`aws-s3-cloudwatch-report.sh`](/Users/jrodolfo/workspace/shell/aws-audit/aws-s3-cloudwatch-report.sh) when you want a CloudWatch-focused report for one bucket.
+
+Example:
+
+```bash
+./aws-s3-cloudwatch-report.sh --bucket example.com
+```
+
+The script:
+- detects the bucket region
+- queries S3 storage metrics from CloudWatch in `us-east-1`
+- queries bucket request metrics from the bucket region
+- writes a readable `report.txt`
+- writes a machine-readable `summary.json`
+- saves raw JSON and stderr details under `reports/`
+
+Notes for S3 metrics:
+- storage metrics such as `BucketSizeBytes` and `NumberOfObjects` are daily metrics
+- request metrics may not exist unless S3 request metrics are enabled for the bucket
+- a static website bucket is a good fit for checking request counts, errors, bytes downloaded, and object counts
+
 Service filter keys:
 - `sts`
 - `aws-config`
@@ -145,6 +182,7 @@ Service filter keys:
 - Regional commands use explicit `--region` values.
 - The default regions are `us-east-1` and `us-east-2`, but you can override them with `--regions`.
 - `make audit` also accepts `REGIONS="..."` and `SERVICES="..."` and passes them through to the script.
+- `make s3-cloudwatch` accepts `BUCKET=...` and optional `REGION=...`.
 - Skipped commands are recorded explicitly when you use `--services`.
 - The script is intentionally defensive and continues after individual command failures.
 - If AWS permissions are missing or a service is unavailable, the failure is recorded in the report and under `stderr/`.
