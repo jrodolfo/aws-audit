@@ -3,7 +3,7 @@
 Shell-based AWS audit helper for checking common resources across AWS regions, defaulting to `us-east-1` and `us-east-2`.
 
 It is designed for a practical cleanup workflow:
-- compare resources across two regions
+- compare resources across one or more regions
 - spot likely billable resources first
 - keep raw command output for later inspection
 - continue running even when some AWS services, permissions, or endpoints fail
