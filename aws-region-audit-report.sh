@@ -1,16 +1,12 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-REGIONS=("us-east-1" "us-east-2")
+DEFAULT_REGIONS=("us-east-1" "us-east-2")
+REGIONS=("${DEFAULT_REGIONS[@]}")
 TIMESTAMP="$(date +"%Y-%m-%d_%H-%M-%S")"
 REPORTS_DIR="reports"
-OUTDIR="$REPORTS_DIR/aws-audit-$TIMESTAMP"
-TEXT_REPORT="$OUTDIR/report.txt"
-JSON_DIR="$OUTDIR/json"
-TEXT_DIR="$OUTDIR/text"
-STDERR_DIR="$OUTDIR/stderr"
-META_DIR="$OUTDIR/meta"
-STATUS_TSV="$META_DIR/status.tsv"
+BASE_OUTDIR="$REPORTS_DIR/aws-audit-$TIMESTAMP"
+OUTDIR="$BASE_OUTDIR"
 STATUS_DELIM=$'\034'
 
 AWS_BIN="${AWS_BIN:-aws}"
@@ -18,6 +14,19 @@ JQ_BIN="${JQ_BIN:-jq}"
 HAS_JQ=0
 SUCCESS_COUNT=0
 FAILURE_COUNT=0
+RUN_SUFFIX=0
+
+while [ -e "$OUTDIR" ]; do
+  RUN_SUFFIX=$((RUN_SUFFIX + 1))
+  OUTDIR="${BASE_OUTDIR}-${RUN_SUFFIX}"
+done
+
+TEXT_REPORT="$OUTDIR/report.txt"
+JSON_DIR="$OUTDIR/json"
+TEXT_DIR="$OUTDIR/text"
+STDERR_DIR="$OUTDIR/stderr"
+META_DIR="$OUTDIR/meta"
+STATUS_TSV="$META_DIR/status.tsv"
 
 mkdir -p "$OUTDIR" "$JSON_DIR" "$TEXT_DIR" "$STDERR_DIR" "$META_DIR"
 : > "$TEXT_REPORT"
@@ -28,6 +37,67 @@ if command -v "$JQ_BIN" >/dev/null 2>&1; then
 fi
 
 export AWS_PAGER=""
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./aws-region-audit-report.sh [--regions us-east-1,us-east-2]
+  ./aws-region-audit-report.sh [--regions us-east-1 us-east-2]
+
+Options:
+  --regions  Override the default region list.
+  -h, --help Show this help text.
+EOF
+}
+
+parse_regions_flag() {
+  local value
+  local normalized
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --)
+        shift
+        break
+        ;;
+      --regions)
+        shift
+        REGIONS=()
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            --*)
+              break
+              ;;
+            *)
+              normalized="${1//,/ }"
+              for value in $normalized; do
+                if [ -n "$value" ]; then
+                  REGIONS+=("$value")
+                fi
+              done
+              shift
+              ;;
+          esac
+        done
+
+        if [ "${#REGIONS[@]}" -eq 0 ]; then
+          printf 'Error: --regions requires at least one region value.\n' >&2
+          usage >&2
+          exit 1
+        fi
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      *)
+        printf 'Error: unknown argument: %s\n' "$1" >&2
+        usage >&2
+        exit 1
+        ;;
+    esac
+  done
+}
 
 log_console() {
   printf '%s\n' "$*"
@@ -402,6 +472,7 @@ collect_region_audits() {
 write_report_header() {
   report_line "AWS regional audit"
   report_line "Generated at: $(date)"
+  report_line "Regions: ${REGIONS[*]}"
   report_line "Output directory: $OUTDIR"
   report_line "JSON outputs: $JSON_DIR"
   report_line "Text outputs: $TEXT_DIR"
@@ -505,7 +576,9 @@ write_detailed_results_section() {
 }
 
 main() {
+  parse_regions_flag "$@"
   log_console "Writing audit output to: $OUTDIR"
+  log_console "Regions: ${REGIONS[*]}"
   collect_global_audits
 
   local region

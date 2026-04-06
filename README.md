@@ -1,6 +1,6 @@
 # AWS Region Audit
 
-Shell-based AWS audit helper for checking common resources in `us-east-1` and `us-east-2`.
+Shell-based AWS audit helper for checking common resources across AWS regions, defaulting to `us-east-1` and `us-east-2`.
 
 It is designed for a practical cleanup workflow:
 - compare resources across two regions
@@ -38,6 +38,36 @@ Run the audit:
 
 ```bash
 make audit
+```
+
+Run the audit for specific regions through `make`:
+
+```bash
+make audit REGIONS="us-east-2"
+```
+
+Or:
+
+```bash
+make audit REGIONS="us-east-1 us-east-2"
+```
+
+Run the script directly with the default regions:
+
+```bash
+./aws-region-audit-report.sh
+```
+
+Override the regions:
+
+```bash
+./aws-region-audit-report.sh --regions us-east-1 us-east-2
+```
+
+Or:
+
+```bash
+./aws-region-audit-report.sh --regions us-east-1,us-east-2
 ```
 
 Check script syntax:
@@ -78,5 +108,7 @@ The script currently checks:
 ## Notes
 
 - Regional commands use explicit `--region` values.
+- The default regions are `us-east-1` and `us-east-2`, but you can override them with `--regions`.
+- `make audit` also accepts `REGIONS="..."` and passes that through to the script.
 - The script is intentionally defensive and continues after individual command failures.
 - If AWS permissions are missing or a service is unavailable, the failure is recorded in the report and under `stderr/`.
