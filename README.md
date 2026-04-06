@@ -18,6 +18,7 @@ reports/aws-audit-2026-04-06_16-34-25/
 
 That folder contains:
 - `report.txt`: human-readable summary and detailed results
+- `summary.json`: machine-readable run summary with counts and failed/skipped commands
 - `json/`: raw JSON outputs for successful JSON commands
 - `text/`: raw text outputs for text-based commands
 - `stderr/`: stderr captured from failed commands
@@ -52,6 +53,12 @@ Or:
 make audit REGIONS="us-east-1 us-east-2"
 ```
 
+Limit the audit to specific service groups:
+
+```bash
+make audit SERVICES="sagemaker ec2"
+```
+
 Run the script directly with the default regions:
 
 ```bash
@@ -68,6 +75,18 @@ Or:
 
 ```bash
 ./aws-region-audit-report.sh --regions us-east-1,us-east-2
+```
+
+Filter by service groups:
+
+```bash
+./aws-region-audit-report.sh --services sagemaker,ec2
+```
+
+Run local tests:
+
+```bash
+make test
 ```
 
 Check script syntax:
@@ -105,10 +124,27 @@ The script currently checks:
 - CloudWatch Logs
 - Resource Groups Tagging API
 
+Service filter keys:
+- `sts`
+- `aws-config`
+- `s3`
+- `ec2`
+- `elbv2`
+- `rds`
+- `lambda`
+- `ecs`
+- `eks`
+- `sagemaker`
+- `opensearch`
+- `secretsmanager`
+- `logs`
+- `tagging`
+
 ## Notes
 
 - Regional commands use explicit `--region` values.
 - The default regions are `us-east-1` and `us-east-2`, but you can override them with `--regions`.
-- `make audit` also accepts `REGIONS="..."` and passes that through to the script.
+- `make audit` also accepts `REGIONS="..."` and `SERVICES="..."` and passes them through to the script.
+- Skipped commands are recorded explicitly when you use `--services`.
 - The script is intentionally defensive and continues after individual command failures.
 - If AWS permissions are missing or a service is unavailable, the failure is recorded in the report and under `stderr/`.
