@@ -1,5 +1,7 @@
 # AWS Region Audit
 
+[![ci](https://github.com/jrodolfo/aws-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/jrodolfo/aws-audit/actions/workflows/ci.yml)
+
 Shell-based AWS audit helper for checking common resources across AWS regions, defaulting to `us-east-1` and `us-east-2`.
 
 The repo also includes a focused S3 CloudWatch script for inspecting one bucket's storage and request metrics.
@@ -102,6 +104,16 @@ Check script syntax:
 ```bash
 make lint
 ```
+
+## CI
+
+GitHub Actions runs CI for pushes to `main` and for pull requests.
+
+The default CI workflow runs:
+- `make lint`
+- `make test`
+
+These checks are local and mock-based, so they do not require AWS credentials.
 
 Show available targets:
 
