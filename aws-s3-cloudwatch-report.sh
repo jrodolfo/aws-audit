@@ -271,15 +271,29 @@ discover_storage_type_values() {
 
 discover_request_metric_names() {
   local path="$1"
+  local filter_id="$2"
+
+  if [ "$HAS_JQ" -ne 1 ] || [ ! -s "$path" ]; then
+    return 0
+  fi
+
+  "$JQ_BIN" -r --arg filter_id "$filter_id" '
+    .Metrics[]
+    | select(any(.Dimensions[]; .Name == "FilterId" and .Value == $filter_id))
+    | .MetricName
+  ' "$path" 2>/dev/null | sort -u
+}
+
+discover_request_filter_ids() {
+  local path="$1"
 
   if [ "$HAS_JQ" -ne 1 ] || [ ! -s "$path" ]; then
     return 0
   fi
 
   "$JQ_BIN" -r '
-    .Metrics[]
-    | select(any(.Dimensions[]; .Name == "FilterId"))
-    | .MetricName
+    .MetricsConfigurationList[]
+    | .Id
   ' "$path" 2>/dev/null | sort -u
 }
 
@@ -400,12 +414,39 @@ collect_storage_metrics() {
 
 collect_request_metrics() {
   local catalog_json="$JSON_DIR/request_metrics_catalog.json"
+  local metrics_config_json="$JSON_DIR/bucket_metrics_configurations.json"
   local end_time start_time metric_name statistic metric_safe output_json found_any=0
+  local filter_id filter_safe
+  local filter_count=0
 
   start_time="$(date_days_ago_utc "$DAYS")"
   end_time="$(date_now_utc)"
 
-  log_console "Discovering request metrics"
+  log_console "Discovering S3 bucket metrics configurations"
+  if ! run_cmd \
+    "bucket-metrics-configurations" \
+    "bucket" \
+    "$metrics_config_json" \
+    "$AWS_BIN" s3api list-bucket-metrics-configurations \
+      --bucket "$BUCKET" \
+      --output json; then
+    return 0
+  fi
+
+  while IFS= read -r filter_id; do
+    [ -n "$filter_id" ] || continue
+    filter_count=$((filter_count + 1))
+  done < <(discover_request_filter_ids "$metrics_config_json")
+
+  if [ "$filter_count" -eq 0 ]; then
+    record_skipped \
+      "request-metrics-not-configured" \
+      "cloudwatch-request" \
+      "No S3 bucket metrics configurations were found. Enable request metrics on the bucket before expecting request-level CloudWatch metrics."
+    return 0
+  fi
+
+  log_console "Discovering request metrics from CloudWatch"
   if ! run_cmd \
     "request-metrics-catalog" \
     "cloudwatch-request" \
@@ -418,30 +459,37 @@ collect_request_metrics() {
     return 0
   fi
 
-  while IFS= read -r metric_name; do
-    [ -n "$metric_name" ] || continue
-    found_any=1
-    statistic="$(request_metric_statistic "$metric_name")"
-    metric_safe="$(printf '%s' "$metric_name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')"
-    output_json="$JSON_DIR/request_${metric_safe}.json"
-    run_cmd \
-      "request-${metric_safe}" \
-      "cloudwatch-request" \
-      "$output_json" \
-      "$AWS_BIN" cloudwatch get-metric-statistics \
-        --namespace AWS/S3 \
-        --metric-name "$metric_name" \
-        --dimensions Name=BucketName,Value="$BUCKET" Name=FilterId,Value=EntireBucket \
-        --start-time "$start_time" \
-        --end-time "$end_time" \
-        --period 86400 \
-        --statistics "$statistic" \
-        --region "$REQUEST_REGION" \
-        --output json
-  done < <(discover_request_metric_names "$catalog_json")
+  while IFS= read -r filter_id; do
+    [ -n "$filter_id" ] || continue
+    filter_safe="$(printf '%s' "$filter_id" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')"
+    while IFS= read -r metric_name; do
+      [ -n "$metric_name" ] || continue
+      found_any=1
+      statistic="$(request_metric_statistic "$metric_name")"
+      metric_safe="$(printf '%s' "$metric_name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')"
+      output_json="$JSON_DIR/request_${filter_safe}_${metric_safe}.json"
+      run_cmd \
+        "request-${filter_safe}-${metric_safe}" \
+        "cloudwatch-request" \
+        "$output_json" \
+        "$AWS_BIN" cloudwatch get-metric-statistics \
+          --namespace AWS/S3 \
+          --metric-name "$metric_name" \
+          --dimensions Name=BucketName,Value="$BUCKET" Name=FilterId,Value="$filter_id" \
+          --start-time "$start_time" \
+          --end-time "$end_time" \
+          --period 86400 \
+          --statistics "$statistic" \
+          --region "$REQUEST_REGION" \
+          --output json
+    done < <(discover_request_metric_names "$catalog_json" "$filter_id")
+  done < <(discover_request_filter_ids "$metrics_config_json")
 
   if [ "$found_any" -eq 0 ]; then
-    record_skipped "request-metrics-discovery-empty" "cloudwatch-request" "No S3 request metrics were discovered. Request metrics may not be enabled for this bucket."
+    record_skipped \
+      "request-metrics-discovery-empty" \
+      "cloudwatch-request" \
+      "S3 bucket metrics configurations exist, but CloudWatch did not return request metrics yet. This can happen if metrics were enabled recently or there has not been recent traffic."
   fi
 }
 

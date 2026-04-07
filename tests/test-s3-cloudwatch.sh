@@ -35,13 +35,14 @@ main() {
   assert_file_exists "$outdir/report.txt"
   assert_file_exists "$outdir/summary.json"
   assert_file_exists "$outdir/json/bucket_location.json"
-  assert_file_exists "$outdir/json/request_allrequests.json"
+  assert_file_exists "$outdir/json/bucket_metrics_configurations.json"
+  assert_file_exists "$outdir/json/request_website_traffic_allrequests.json"
   assert_file_exists "$outdir/json/storage_bucket_size_bytes_standardstorage.json"
 
   assert_eq "example.com" "$("$JQ_BIN" -r '.bucket' "$outdir/summary.json")"
   assert_eq "us-east-2" "$("$JQ_BIN" -r '.bucket_region' "$outdir/summary.json")"
   assert_eq "us-east-2" "$("$JQ_BIN" -r '.request_region' "$outdir/summary.json")"
-  assert_eq "8" "$("$JQ_BIN" -r '.success_count' "$outdir/summary.json")"
+  assert_eq "9" "$("$JQ_BIN" -r '.success_count' "$outdir/summary.json")"
   assert_eq "0" "$("$JQ_BIN" -r '.failure_count' "$outdir/summary.json")"
 
   rm -rf "$tmp_dir"
