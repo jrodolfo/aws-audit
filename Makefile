@@ -7,6 +7,7 @@ REGIONS ?=
 SERVICES ?=
 BUCKET ?=
 REGION ?=
+DAYS ?=
 
 .PHONY: help reports lint test audit s3-cloudwatch
 
@@ -21,7 +22,8 @@ help:
 		'                Optional: make audit REGIONS="us-east-2"' \
 		'                Optional: make audit SERVICES="sagemaker ec2"' \
 		'  make s3-cloudwatch BUCKET=example.com' \
-		'                Optional: make s3-cloudwatch BUCKET=example.com REGION=us-east-2'
+		'                Optional: make s3-cloudwatch BUCKET=example.com REGION=us-east-2' \
+		'                Optional: make s3-cloudwatch BUCKET=example.com DAYS=30'
 
 reports:
 	@mkdir -p "$(REPORTS_DIR)"
@@ -46,4 +48,5 @@ s3-cloudwatch: reports lint
 	fi
 	@"$(S3_CLOUDWATCH_SCRIPT)" \
 		--bucket "$(BUCKET)" \
-		$(if $(strip $(REGION)),--region $(REGION),)
+		$(if $(strip $(REGION)),--region $(REGION),) \
+		$(if $(strip $(DAYS)),--days $(DAYS),)

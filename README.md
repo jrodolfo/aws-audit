@@ -121,6 +121,12 @@ Override the request-metrics region:
 make s3-cloudwatch BUCKET=example.com REGION=us-east-2
 ```
 
+Override the queried time window:
+
+```bash
+make s3-cloudwatch BUCKET=example.com DAYS=30
+```
+
 ## AWS Services Covered
 
 The script currently checks:
@@ -152,6 +158,12 @@ Example:
 
 ```bash
 ./aws-s3-cloudwatch-report.sh --bucket example.com
+```
+
+Query a longer time window:
+
+```bash
+./aws-s3-cloudwatch-report.sh --bucket example.com --days 30
 ```
 
 The script:
@@ -188,7 +200,7 @@ Service filter keys:
 - Regional commands use explicit `--region` values.
 - The default regions are `us-east-1` and `us-east-2`, but you can override them with `--regions`.
 - `make audit` also accepts `REGIONS="..."` and `SERVICES="..."` and passes them through to the script.
-- `make s3-cloudwatch` accepts `BUCKET=...` and optional `REGION=...`.
+- `make s3-cloudwatch` accepts `BUCKET=...` and optional `REGION=...` and `DAYS=...`.
 - Skipped commands are recorded explicitly when you use `--services`.
 - The script is intentionally defensive and continues after individual command failures.
 - If AWS permissions are missing or a service is unavailable, the failure is recorded in the report and under `stderr/`.
