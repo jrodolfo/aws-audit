@@ -252,6 +252,18 @@ latest_datapoint_value() {
   ' "$path" 2>/dev/null || printf 'n/a'
 }
 
+count_lines() {
+  local value=0
+  local line
+
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    value=$((value + 1))
+  done
+
+  printf '%s' "$value"
+}
+
 discover_storage_type_values() {
   local path="$1"
   local metric_name="$2"
@@ -509,13 +521,37 @@ write_report_header() {
 write_summary_section() {
   local total_commands=$((SUCCESS_COUNT + FAILURE_COUNT + SKIPPED_COUNT))
   local step scope status exit_code stdout_path stderr_path note
-  local path latest_value
+  local path latest_value filter_id metric_name
+  local metrics_config_json="$JSON_DIR/bucket_metrics_configurations.json"
+  local request_catalog_json="$JSON_DIR/request_metrics_catalog.json"
 
   write_section_separator "Summary"
   report_line "Total steps: $total_commands"
   report_line "Successful steps: $SUCCESS_COUNT"
   report_line "Failed steps: $FAILURE_COUNT"
   report_line "Skipped steps: $SKIPPED_COUNT"
+  report_line
+  report_line "Request metrics discovery summary:"
+
+  if [ -f "$metrics_config_json" ] && [ -s "$metrics_config_json" ]; then
+    report_line "- Bucket metrics configuration IDs: $(discover_request_filter_ids "$metrics_config_json" | count_lines)"
+    while IFS= read -r filter_id; do
+      [ -n "$filter_id" ] || continue
+      report_line "  - $filter_id"
+      if [ -f "$request_catalog_json" ] && [ -s "$request_catalog_json" ]; then
+        report_line "    published request metrics: $(discover_request_metric_names "$request_catalog_json" "$filter_id" | count_lines)"
+        while IFS= read -r metric_name; do
+          [ -n "$metric_name" ] || continue
+          report_line "    - $metric_name"
+        done < <(discover_request_metric_names "$request_catalog_json" "$filter_id")
+      else
+        report_line "    published request metrics: 0"
+      fi
+    done < <(discover_request_filter_ids "$metrics_config_json")
+  else
+    report_line "- Bucket metrics configuration IDs: 0"
+  fi
+
   report_line
   report_line "Latest storage metric datapoints:"
 
@@ -615,7 +651,7 @@ write_details_section() {
 
 write_summary_json() {
   local total_steps=$((SUCCESS_COUNT + FAILURE_COUNT + SKIPPED_COUNT))
-  local failed_json skipped_json
+  local failed_json skipped_json request_configs_json
 
   if [ "$HAS_JQ" -ne 1 ]; then
     return 0
@@ -648,6 +684,41 @@ write_summary_json() {
      | select(.status == "skipped")]
   ' < "$STATUS_TSV")"
 
+  if [ -f "$JSON_DIR/bucket_metrics_configurations.json" ] && [ -s "$JSON_DIR/bucket_metrics_configurations.json" ] && [ -f "$JSON_DIR/request_metrics_catalog.json" ] && [ -s "$JSON_DIR/request_metrics_catalog.json" ]; then
+    request_configs_json="$("$JQ_BIN" -n \
+      --argfile metrics "$JSON_DIR/bucket_metrics_configurations.json" \
+      --argfile catalog "$JSON_DIR/request_metrics_catalog.json" '
+      ($metrics.MetricsConfigurationList // []) as $configs
+      | ($catalog.Metrics // []) as $catalog_metrics
+      | [
+          $configs[]
+          | .Id as $id
+          | {
+              id: $id,
+              published_metric_names: [
+                $catalog_metrics[]
+                | select(any(.Dimensions[]?; .Name == "FilterId" and .Value == $id))
+                | .MetricName
+              ] | unique | sort
+            }
+        ]
+    ' 2>/dev/null || printf '[]')"
+  elif [ -f "$JSON_DIR/bucket_metrics_configurations.json" ] && [ -s "$JSON_DIR/bucket_metrics_configurations.json" ]; then
+    request_configs_json="$("$JQ_BIN" -n \
+      --argfile metrics "$JSON_DIR/bucket_metrics_configurations.json" '
+      ($metrics.MetricsConfigurationList // []) as $configs
+      | [
+          $configs[]
+          | {
+              id: .Id,
+              published_metric_names: []
+            }
+        ]
+    ' 2>/dev/null || printf '[]')"
+  else
+    request_configs_json='[]'
+  fi
+
   "$JQ_BIN" -n \
     --arg bucket "$BUCKET" \
     --arg bucket_region "$BUCKET_REGION" \
@@ -662,6 +733,7 @@ write_summary_json() {
     --argjson success_count "$SUCCESS_COUNT" \
     --argjson failure_count "$FAILURE_COUNT" \
     --argjson skipped_count "$SKIPPED_COUNT" \
+    --argjson request_metric_configurations "$request_configs_json" \
     --argjson failed_steps "$failed_json" \
     --argjson skipped_steps "$skipped_json" \
     '{
@@ -678,6 +750,7 @@ write_summary_json() {
       success_count: $success_count,
       failure_count: $failure_count,
       skipped_count: $skipped_count,
+      request_metric_configurations: $request_metric_configurations,
       failed_steps: $failed_steps,
       skipped_steps: $skipped_steps
     }' > "$SUMMARY_JSON"
