@@ -44,6 +44,8 @@ main() {
   assert_eq "us-east-2" "$("$JQ_BIN" -r '.request_region' "$outdir/summary.json")"
   assert_eq "9" "$("$JQ_BIN" -r '.success_count' "$outdir/summary.json")"
   assert_eq "0" "$("$JQ_BIN" -r '.failure_count' "$outdir/summary.json")"
+  assert_eq "website-traffic" "$("$JQ_BIN" -r '.request_metric_configurations[0].id' "$outdir/summary.json")"
+  assert_eq "2" "$("$JQ_BIN" -r '.request_metric_configurations[0].published_metric_names | length' "$outdir/summary.json")"
 
   rm -rf "$tmp_dir"
   printf 's3 cloudwatch tests passed\n'

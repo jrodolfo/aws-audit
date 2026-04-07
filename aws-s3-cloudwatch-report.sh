@@ -281,6 +281,16 @@ discover_storage_type_values() {
   ' "$path" 2>/dev/null | sort -u
 }
 
+storage_catalog_has_metrics() {
+  local path="$1"
+
+  if [ "$HAS_JQ" -ne 1 ] || [ ! -s "$path" ]; then
+    return 1
+  fi
+
+  [ "$("$JQ_BIN" -r '(.Metrics // []) | length' "$path" 2>/dev/null || printf '0')" -gt 0 ]
+}
+
 discover_request_metric_names() {
   local path="$1"
   local filter_id="$2"
@@ -358,7 +368,9 @@ collect_bucket_metadata() {
 
 collect_storage_metrics() {
   local catalog_json="$JSON_DIR/storage_metrics_catalog.json"
-  local end_time start_time storage_type metric_name metric_safe output_json latest_value
+  local catalog_bucket_region_json="$JSON_DIR/storage_metrics_catalog_bucket_region.json"
+  local selected_catalog_json="$catalog_json"
+  local end_time start_time storage_type metric_safe output_json
   local found_any=0
 
   start_time="$(date_days_ago_utc "$DAYS")"
@@ -375,6 +387,23 @@ collect_storage_metrics() {
       --region "$STORAGE_METRICS_REGION" \
       --output json; then
     return 0
+  fi
+
+  if ! storage_catalog_has_metrics "$catalog_json" && [ "$BUCKET_REGION" != "$STORAGE_METRICS_REGION" ]; then
+    log_console "No storage metrics found in $STORAGE_METRICS_REGION, retrying bucket region: $BUCKET_REGION"
+    if run_cmd \
+      "storage-metrics-catalog-bucket-region" \
+      "cloudwatch-storage" \
+      "$catalog_bucket_region_json" \
+      "$AWS_BIN" cloudwatch list-metrics \
+        --namespace AWS/S3 \
+        --dimensions Name=BucketName,Value="$BUCKET" \
+        --region "$BUCKET_REGION" \
+        --output json; then
+      if storage_catalog_has_metrics "$catalog_bucket_region_json"; then
+        selected_catalog_json="$catalog_bucket_region_json"
+      fi
+    fi
   fi
 
   while IFS= read -r storage_type; do
@@ -396,7 +425,7 @@ collect_storage_metrics() {
         --statistics Average \
         --region "$STORAGE_METRICS_REGION" \
         --output json
-  done < <(discover_storage_type_values "$catalog_json" "BucketSizeBytes")
+  done < <(discover_storage_type_values "$selected_catalog_json" "BucketSizeBytes")
 
   while IFS= read -r storage_type; do
     [ -n "$storage_type" ] || continue
@@ -417,7 +446,7 @@ collect_storage_metrics() {
         --statistics Average \
         --region "$STORAGE_METRICS_REGION" \
         --output json
-  done < <(discover_storage_type_values "$catalog_json" "NumberOfObjects")
+  done < <(discover_storage_type_values "$selected_catalog_json" "NumberOfObjects")
 
   if [ "$found_any" -eq 0 ]; then
     record_skipped "storage-metrics-discovery-empty" "cloudwatch-storage" "No storage metric dimensions were discovered for this bucket."
@@ -686,10 +715,10 @@ write_summary_json() {
 
   if [ -f "$JSON_DIR/bucket_metrics_configurations.json" ] && [ -s "$JSON_DIR/bucket_metrics_configurations.json" ] && [ -f "$JSON_DIR/request_metrics_catalog.json" ] && [ -s "$JSON_DIR/request_metrics_catalog.json" ]; then
     request_configs_json="$("$JQ_BIN" -n \
-      --argfile metrics "$JSON_DIR/bucket_metrics_configurations.json" \
-      --argfile catalog "$JSON_DIR/request_metrics_catalog.json" '
-      ($metrics.MetricsConfigurationList // []) as $configs
-      | ($catalog.Metrics // []) as $catalog_metrics
+      --slurpfile metrics "$JSON_DIR/bucket_metrics_configurations.json" \
+      --slurpfile catalog "$JSON_DIR/request_metrics_catalog.json" '
+      (($metrics[0].MetricsConfigurationList) // []) as $configs
+      | (($catalog[0].Metrics) // []) as $catalog_metrics
       | [
           $configs[]
           | .Id as $id
@@ -705,8 +734,8 @@ write_summary_json() {
     ' 2>/dev/null || printf '[]')"
   elif [ -f "$JSON_DIR/bucket_metrics_configurations.json" ] && [ -s "$JSON_DIR/bucket_metrics_configurations.json" ]; then
     request_configs_json="$("$JQ_BIN" -n \
-      --argfile metrics "$JSON_DIR/bucket_metrics_configurations.json" '
-      ($metrics.MetricsConfigurationList // []) as $configs
+      --slurpfile metrics "$JSON_DIR/bucket_metrics_configurations.json" '
+      (($metrics[0].MetricsConfigurationList) // []) as $configs
       | [
           $configs[]
           | {
