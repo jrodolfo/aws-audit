@@ -27,6 +27,13 @@ assert_eq() {
   fi
 }
 
+assert_file_contains() {
+  if ! grep -Fq -- "$2" "$1"; then
+    printf 'expected file [%s] to contain [%s]\n' "$1" "$2" >&2
+    exit 1
+  fi
+}
+
 run_audit() {
   local reports_dir="$1"
   shift
@@ -50,10 +57,16 @@ test_default_run_creates_outputs() {
   assert_file_exists "$outdir/summary.json"
   assert_file_exists "$outdir/meta/status.tsv"
 
+  assert_eq "123456789012" "$("$JQ_BIN" -r '.account_id' "$outdir/summary.json")"
+  assert_eq "arn:aws:iam::123456789012:user/test" "$("$JQ_BIN" -r '.caller_arn' "$outdir/summary.json")"
+  assert_eq "test-user" "$("$JQ_BIN" -r '.caller_user_id' "$outdir/summary.json")"
   assert_eq "us-east-1 us-east-2" "$("$JQ_BIN" -r '.selected_regions | join(" ")' "$outdir/summary.json")"
   assert_eq "37" "$("$JQ_BIN" -r '.success_count' "$outdir/summary.json")"
   assert_eq "0" "$("$JQ_BIN" -r '.failure_count' "$outdir/summary.json")"
   assert_eq "0" "$("$JQ_BIN" -r '.skipped_count' "$outdir/summary.json")"
+  assert_file_contains "$outdir/report.txt" "AWS account ID: 123456789012"
+  assert_file_contains "$outdir/report.txt" "AWS caller ARN: arn:aws:iam::123456789012:user/test"
+  assert_file_contains "$outdir/report.txt" "AWS caller user ID: test-user"
   rm -rf "$tmp_dir"
 }
 

@@ -36,6 +36,9 @@ SUCCESS_COUNT=0
 FAILURE_COUNT=0
 SKIPPED_COUNT=0
 RUN_SUFFIX=0
+ACCOUNT_ID="n/a"
+CALLER_ARN="n/a"
+CALLER_USER_ID="n/a"
 
 while [ -e "$OUTDIR" ]; do
   RUN_SUFFIX=$((RUN_SUFFIX + 1))
@@ -282,6 +285,18 @@ json_count() {
       0
     end
   ' "$path" 2>/dev/null || printf 'n/a'
+}
+
+load_account_identity() {
+  local caller_identity_json="$JSON_DIR/sts_get_caller_identity.json"
+
+  if [ "$HAS_JQ" -ne 1 ] || [ ! -s "$caller_identity_json" ]; then
+    return 0
+  fi
+
+  ACCOUNT_ID="$("$JQ_BIN" -r '.Account // "n/a"' "$caller_identity_json" 2>/dev/null || printf 'n/a')"
+  CALLER_ARN="$("$JQ_BIN" -r '.Arn // "n/a"' "$caller_identity_json" 2>/dev/null || printf 'n/a')"
+  CALLER_USER_ID="$("$JQ_BIN" -r '.UserId // "n/a"' "$caller_identity_json" 2>/dev/null || printf 'n/a')"
 }
 
 render_stdout_to_report() {
@@ -665,6 +680,9 @@ collect_region_audits() {
 write_report_header() {
   report_line "AWS regional audit"
   report_line "Generated at: $(date)"
+  report_line "AWS account ID: $ACCOUNT_ID"
+  report_line "AWS caller ARN: $CALLER_ARN"
+  report_line "AWS caller user ID: $CALLER_USER_ID"
   report_line "Regions: ${REGIONS[*]}"
   report_line "Services: ${SELECTED_SERVICES[*]}"
   report_line "Service filter applied: $( [ "$SERVICE_FILTER_ENABLED" -eq 1 ] && printf 'yes' || printf 'no' )"
@@ -840,6 +858,9 @@ write_summary_json() {
     --arg report_path "$TEXT_REPORT" \
     --arg status_path "$STATUS_TSV" \
     --arg summary_path "$SUMMARY_JSON" \
+    --arg account_id "$ACCOUNT_ID" \
+    --arg caller_arn "$CALLER_ARN" \
+    --arg caller_user_id "$CALLER_USER_ID" \
     --argjson selected_regions "$regions_json" \
     --argjson selected_services "$services_json" \
     --argjson service_filter_applied "$( [ "$SERVICE_FILTER_ENABLED" -eq 1 ] && printf 'true' || printf 'false' )" \
@@ -856,6 +877,9 @@ write_summary_json() {
       report_path: $report_path,
       summary_path: $summary_path,
       status_path: $status_path,
+      account_id: $account_id,
+      caller_arn: $caller_arn,
+      caller_user_id: $caller_user_id,
       selected_regions: $selected_regions,
       selected_services: $selected_services,
       service_filter_applied: $service_filter_applied,
@@ -881,6 +905,7 @@ main() {
     collect_region_audits "$region"
   done
 
+  load_account_identity
   write_report_header
   write_summary_section
   write_region_overview_section
