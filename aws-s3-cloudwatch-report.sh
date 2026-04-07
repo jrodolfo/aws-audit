@@ -20,23 +20,14 @@ SUCCESS_COUNT=0
 FAILURE_COUNT=0
 SKIPPED_COUNT=0
 RUN_SUFFIX=0
-
-while [ -e "$OUTDIR" ]; do
-  RUN_SUFFIX=$((RUN_SUFFIX + 1))
-  OUTDIR="${BASE_OUTDIR}-${RUN_SUFFIX}"
-done
-
-TEXT_REPORT="$OUTDIR/report.txt"
-SUMMARY_JSON="$OUTDIR/summary.json"
-JSON_DIR="$OUTDIR/json"
-TEXT_DIR="$OUTDIR/text"
-STDERR_DIR="$OUTDIR/stderr"
-META_DIR="$OUTDIR/meta"
-STATUS_TSV="$META_DIR/status.tsv"
-
-mkdir -p "$OUTDIR" "$JSON_DIR" "$TEXT_DIR" "$STDERR_DIR" "$META_DIR"
-: > "$TEXT_REPORT"
-: > "$STATUS_TSV"
+TEXT_REPORT=""
+SUMMARY_JSON=""
+JSON_DIR=""
+TEXT_DIR=""
+STDERR_DIR=""
+META_DIR=""
+STATUS_TSV=""
+OUTPUT_INITIALIZED=0
 
 if command -v "$JQ_BIN" >/dev/null 2>&1; then
   HAS_JQ=1
@@ -56,6 +47,46 @@ Options:
   -h, --help Show this help text.
 EOF
 }
+
+init_output() {
+  OUTDIR="$BASE_OUTDIR"
+  RUN_SUFFIX=0
+
+  while [ -e "$OUTDIR" ]; do
+    RUN_SUFFIX=$((RUN_SUFFIX + 1))
+    OUTDIR="${BASE_OUTDIR}-${RUN_SUFFIX}"
+  done
+
+  TEXT_REPORT="$OUTDIR/report.txt"
+  SUMMARY_JSON="$OUTDIR/summary.json"
+  JSON_DIR="$OUTDIR/json"
+  TEXT_DIR="$OUTDIR/text"
+  STDERR_DIR="$OUTDIR/stderr"
+  META_DIR="$OUTDIR/meta"
+  STATUS_TSV="$META_DIR/status.tsv"
+
+  mkdir -p "$OUTDIR" "$JSON_DIR" "$TEXT_DIR" "$STDERR_DIR" "$META_DIR"
+  : > "$STATUS_TSV"
+  OUTPUT_INITIALIZED=1
+}
+
+cleanup_empty_output_on_error() {
+  local exit_code=$?
+  local non_empty_file_count
+
+  if [ "$exit_code" -eq 0 ] || [ "$OUTPUT_INITIALIZED" -ne 1 ] || [ ! -d "$OUTDIR" ]; then
+    return "$exit_code"
+  fi
+
+  non_empty_file_count="$(find "$OUTDIR" -type f -size +0c | wc -l | tr -d '[:space:]')"
+  if [ "${non_empty_file_count:-0}" = "0" ]; then
+    rm -rf "$OUTDIR"
+  fi
+
+  return "$exit_code"
+}
+
+trap cleanup_empty_output_on_error EXIT
 
 log_console() {
   printf '%s\n' "$*"
@@ -100,6 +131,10 @@ date_days_ago_utc() {
   else
     date -u -d "${days} days ago" +"%Y-%m-%dT%H:%M:%SZ"
   fi
+}
+
+trim_carriage_return() {
+  printf '%s' "$1" | tr -d '\r'
 }
 
 bytes_human() {
@@ -417,6 +452,7 @@ collect_storage_metrics() {
   fi
 
   while IFS= read -r storage_type; do
+    storage_type="$(trim_carriage_return "$storage_type")"
     [ -n "$storage_type" ] || continue
     found_any=1
     metric_safe="$(printf '%s' "$storage_type" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')"
@@ -438,6 +474,7 @@ collect_storage_metrics() {
   done < <(discover_storage_type_values "$selected_catalog_json" "BucketSizeBytes")
 
   while IFS= read -r storage_type; do
+    storage_type="$(trim_carriage_return "$storage_type")"
     [ -n "$storage_type" ] || continue
     found_any=1
     metric_safe="$(printf '%s' "$storage_type" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')"
@@ -485,6 +522,7 @@ collect_request_metrics() {
   fi
 
   while IFS= read -r filter_id; do
+    filter_id="$(trim_carriage_return "$filter_id")"
     [ -n "$filter_id" ] || continue
     filter_count=$((filter_count + 1))
   done < <(discover_request_filter_ids "$metrics_config_json")
@@ -511,9 +549,11 @@ collect_request_metrics() {
   fi
 
   while IFS= read -r filter_id; do
+    filter_id="$(trim_carriage_return "$filter_id")"
     [ -n "$filter_id" ] || continue
     filter_safe="$(printf '%s' "$filter_id" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')"
     while IFS= read -r metric_name; do
+      metric_name="$(trim_carriage_return "$metric_name")"
       [ -n "$metric_name" ] || continue
       found_any=1
       statistic="$(request_metric_statistic "$metric_name")"
@@ -575,6 +615,7 @@ write_summary_section() {
   if [ -f "$metrics_config_json" ] && [ -s "$metrics_config_json" ]; then
     report_line "- Bucket metrics configuration IDs: $(discover_request_filter_ids "$metrics_config_json" | count_lines)"
     while IFS= read -r filter_id; do
+      filter_id="$(trim_carriage_return "$filter_id")"
       [ -n "$filter_id" ] || continue
       report_line "  - $filter_id"
       if [ -f "$request_catalog_json" ] && [ -s "$request_catalog_json" ]; then
@@ -805,6 +846,7 @@ write_summary_json() {
 
 main() {
   parse_args "$@"
+  init_output
 
   log_console "Writing S3 CloudWatch output to: $OUTDIR"
   log_console "Bucket: $BUCKET"

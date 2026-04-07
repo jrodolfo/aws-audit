@@ -20,6 +20,13 @@ assert_eq() {
   fi
 }
 
+assert_dir_not_exists() {
+  if [ -d "$1" ]; then
+    printf 'directory should not exist: %s\n' "$1" >&2
+    exit 1
+  fi
+}
+
 main() {
   local tmp_dir reports_dir outdir
 
@@ -46,6 +53,14 @@ main() {
   assert_eq "0" "$("$JQ_BIN" -r '.failure_count' "$outdir/summary.json")"
   assert_eq "website-traffic" "$("$JQ_BIN" -r '.request_metric_configurations[0].id' "$outdir/summary.json")"
   assert_eq "2" "$("$JQ_BIN" -r '.request_metric_configurations[0].published_metric_names | length' "$outdir/summary.json")"
+  assert_eq "1" "$(find "$reports_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
+
+  if REPORTS_DIR="$reports_dir" TIMESTAMP_OVERRIDE="2026-04-06_00-10-00" "$SCRIPT_PATH" >/dev/null 2>&1; then
+    printf 'expected missing bucket invocation to fail\n' >&2
+    exit 1
+  fi
+
+  assert_dir_not_exists "$reports_dir/s3-cloudwatch-2026-04-06_00-10-00"
 
   rm -rf "$tmp_dir"
   printf 's3 cloudwatch tests passed\n'
