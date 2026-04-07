@@ -213,6 +213,24 @@ bytes_human() {
   '
 }
 
+format_decimal() {
+  local value="$1"
+
+  if [ "$value" = "n/a" ] || [ -z "$value" ]; then
+    printf 'n/a'
+    return 0
+  fi
+
+  awk -v value="$value" '
+    BEGIN {
+      formatted = sprintf("%.2f", value)
+      sub(/\.00$/, "", formatted)
+      sub(/([0-9])0$/, "\\1", formatted)
+      print formatted
+    }
+  '
+}
+
 record_status() {
   local step="$1"
   local scope="$2"
@@ -460,24 +478,27 @@ request_metric_description() {
 format_request_metric_value() {
   local metric_name="$1"
   local value="$2"
+  local rounded_value
 
   if [ "$value" = "n/a" ] || [ -z "$value" ]; then
     printf 'n/a'
     return 0
   fi
 
+  rounded_value="$(format_decimal "$value")"
+
   case "$metric_name" in
     BytesDownloaded|BytesUploaded)
-      printf '%s %s (%s)' "$value" "$(request_metric_unit "$metric_name")" "$(bytes_human "$value")"
+      printf '%s %s (%s)' "$rounded_value" "$(request_metric_unit "$metric_name")" "$(bytes_human "$value")"
       ;;
     FirstByteLatency|TotalRequestLatency)
-      printf '%s %s' "$value" "$(request_metric_unit "$metric_name")"
+      printf '%s %s' "$rounded_value" "$(request_metric_unit "$metric_name")"
       ;;
     4xxErrors|5xxErrors|AllRequests|GetRequests|PutRequests|PostRequests|DeleteRequests|HeadRequests)
-      printf '%s %s' "$value" "$(request_metric_unit "$metric_name")"
+      printf '%s %s' "$rounded_value" "$(request_metric_unit "$metric_name")"
       ;;
     *)
-      printf '%s' "$value"
+      printf '%s' "$rounded_value"
       ;;
   esac
 }
@@ -486,9 +507,52 @@ humanize_filter_id() {
   printf '%s' "$1" | tr '_-' '  '
 }
 
-describe_request_metric_entry() {
+request_metric_short_note() {
+  local metric_name="$1"
+
+  case "$metric_name" in
+    4xxErrors)
+      printf 'HTTP 4xx'
+      ;;
+    5xxErrors)
+      printf 'HTTP 5xx'
+      ;;
+    AllRequests)
+      printf 'all requests'
+      ;;
+    GetRequests)
+      printf 'GET'
+      ;;
+    PutRequests)
+      printf 'PUT'
+      ;;
+    PostRequests)
+      printf 'POST'
+      ;;
+    DeleteRequests)
+      printf 'DELETE'
+      ;;
+    HeadRequests)
+      printf 'HEAD'
+      ;;
+    BytesDownloaded)
+      printf 'to clients'
+      ;;
+    BytesUploaded)
+      printf 'from clients'
+      ;;
+    FirstByteLatency|TotalRequestLatency)
+      printf 'average'
+      ;;
+    *)
+      printf ''
+      ;;
+  esac
+}
+
+request_metric_filter_id_from_path() {
   local path="$1"
-  local base metric_name metric_safe filter_id latest_value latest_timestamp window_start window_end statistic formatted_value description
+  local base metric_name metric_safe filter_id
 
   base="$(basename "$path" .json)"
   metric_name="$(metric_label_from_json "$path")"
@@ -499,23 +563,27 @@ describe_request_metric_entry() {
   filter_id="${base#request_}"
   filter_id="${filter_id%_"$metric_safe"}"
 
-  latest_value="$(latest_datapoint_value "$path")"
-  latest_timestamp="$(latest_datapoint_timestamp "$path")"
-  window_start="$(subtract_seconds_from_timestamp "$latest_timestamp" "$REQUEST_METRIC_PERIOD_SECONDS")"
-  window_end="$(timestamp_to_utc "$latest_timestamp")"
-  statistic="$(request_metric_statistic "$metric_name")"
-  formatted_value="$(format_request_metric_value "$metric_name" "$latest_value")"
-  description="$(request_metric_description "$metric_name")"
+  printf '%s' "$filter_id"
+}
 
-  printf -- '- %s for filter "%s": %s during %s to %s (%s over a %s datapoint period). %s.\n' \
-    "$metric_name" \
-    "$(humanize_filter_id "$filter_id")" \
-    "$formatted_value" \
-    "$window_start" \
-    "$window_end" \
-    "$statistic" \
-    "$(duration_human "$REQUEST_METRIC_PERIOD_SECONDS")" \
-    "$description"
+describe_request_metric_entry() {
+  local path="$1"
+  local base metric_name formatted_value short_note
+
+  base="$(basename "$path" .json)"
+  metric_name="$(metric_label_from_json "$path")"
+  if [ -z "$metric_name" ]; then
+    metric_name="${base##*_}"
+  fi
+
+  formatted_value="$(format_request_metric_value "$metric_name" "$(latest_datapoint_value "$path")")"
+  short_note="$(request_metric_short_note "$metric_name")"
+
+  if [ -n "$short_note" ]; then
+    printf -- '- %s: %s (%s)\n' "$metric_name" "$formatted_value" "$short_note"
+  else
+    printf -- '- %s: %s\n' "$metric_name" "$formatted_value"
+  fi
 }
 
 count_lines() {
@@ -831,9 +899,10 @@ write_report_header() {
 write_summary_section() {
   local total_commands=$((SUCCESS_COUNT + FAILURE_COUNT + SKIPPED_COUNT))
   local step scope status exit_code stdout_path stderr_path note
-  local path latest_value filter_id metric_name
+  local path latest_value filter_id metric_name request_window_start request_window_end current_filter_id
   local metrics_config_json="$JSON_DIR/bucket_metrics_configurations.json"
   local request_catalog_json="$JSON_DIR/request_metrics_catalog.json"
+  local first_request_metric_path=""
 
   write_section_separator "Summary"
   report_line "Total steps: $total_commands"
@@ -888,16 +957,40 @@ write_summary_section() {
 
   report_line
   report_line "Latest request metric datapoints:"
-  report_line "These values come from the most recent CloudWatch datapoint returned for each metric."
-  report_line "Days queried from CloudWatch: $DAYS"
-  report_line "Datapoint period for request metrics: $(duration_human "$REQUEST_METRIC_PERIOD_SECONDS")"
-  report_line "Count metrics use totals for the datapoint period, and latency metrics use averages in milliseconds."
   for path in "$JSON_DIR"/request_*.json; do
     [ -f "$path" ] || continue
     if [ "$(basename "$path")" = "request_metrics_catalog.json" ]; then
       continue
     fi
     if json_has_datapoints "$path"; then
+      first_request_metric_path="$path"
+      break
+    fi
+  done
+
+  if [ -n "$first_request_metric_path" ]; then
+    request_window_end="$(timestamp_to_utc "$(latest_datapoint_timestamp "$first_request_metric_path")")"
+    request_window_start="$(subtract_seconds_from_timestamp "$(latest_datapoint_timestamp "$first_request_metric_path")" "$REQUEST_METRIC_PERIOD_SECONDS")"
+    report_line "Most recent datapoint window: $request_window_start to $request_window_end"
+    report_line "Days queried from CloudWatch: $DAYS"
+    report_line "Datapoint period for request metrics: $(duration_human "$REQUEST_METRIC_PERIOD_SECONDS")"
+    report_line "Count metrics are totals for the datapoint period. Latency metrics are averages in milliseconds."
+  else
+    report_line "(no request metric datapoints)"
+  fi
+
+  current_filter_id=""
+  for path in "$JSON_DIR"/request_*.json; do
+    [ -f "$path" ] || continue
+    if [ "$(basename "$path")" = "request_metrics_catalog.json" ]; then
+      continue
+    fi
+    if json_has_datapoints "$path"; then
+      filter_id="$(request_metric_filter_id_from_path "$path")"
+      if [ "$filter_id" != "$current_filter_id" ]; then
+        current_filter_id="$filter_id"
+        report_line "Filter: $(humanize_filter_id "$current_filter_id")"
+      fi
       describe_request_metric_entry "$path" >> "$TEXT_REPORT"
     else
       report_line "- $(basename "$path" .json): metric definition found, but CloudWatch returned no datapoints"
