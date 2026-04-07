@@ -6,6 +6,7 @@ REQUEST_REGION=""
 BUCKET_REGION=""
 STORAGE_METRICS_REGION="us-east-1"
 DAYS=14
+REQUEST_METRIC_PERIOD_SECONDS=86400
 
 TIMESTAMP="${TIMESTAMP_OVERRIDE:-$(date +"%Y-%m-%d_%H-%M-%S")}"
 REPORTS_DIR="${REPORTS_DIR:-reports/s3-cloudwatch}"
@@ -131,6 +132,59 @@ date_days_ago_utc() {
   else
     date -u -d "${days} days ago" +"%Y-%m-%dT%H:%M:%SZ"
   fi
+}
+
+subtract_seconds_from_timestamp() {
+  local timestamp="$1"
+  local seconds="$2"
+  local epoch
+
+  if [ "$timestamp" = "n/a" ] || [ -z "$timestamp" ]; then
+    printf 'n/a'
+    return 0
+  fi
+
+  if epoch="$(date -d "$timestamp" +%s 2>/dev/null)"; then
+    date -u -d "@$((epoch - seconds))" +"%Y-%m-%dT%H:%M:%SZ"
+  elif epoch="$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$timestamp" +%s 2>/dev/null)"; then
+    date -u -r "$((epoch - seconds))" +"%Y-%m-%dT%H:%M:%SZ"
+  else
+    printf 'n/a'
+  fi
+}
+
+timestamp_to_utc() {
+  local timestamp="$1"
+  local epoch
+
+  if [ "$timestamp" = "n/a" ] || [ -z "$timestamp" ]; then
+    printf 'n/a'
+    return 0
+  fi
+
+  if epoch="$(date -d "$timestamp" +%s 2>/dev/null)"; then
+    date -u -d "@$epoch" +"%Y-%m-%dT%H:%M:%SZ"
+  elif epoch="$(date -j -f "%Y-%m-%dT%H:%M:%S%z" "$timestamp" +%s 2>/dev/null)"; then
+    date -u -r "$epoch" +"%Y-%m-%dT%H:%M:%SZ"
+  else
+    printf '%s' "$timestamp"
+  fi
+}
+
+duration_human() {
+  local seconds="$1"
+
+  case "$seconds" in
+    86400)
+      printf '24 hours'
+      ;;
+    3600)
+      printf '1 hour'
+      ;;
+    *)
+      printf '%s seconds' "$seconds"
+      ;;
+  esac
 }
 
 trim_carriage_return() {
@@ -434,7 +488,7 @@ humanize_filter_id() {
 
 describe_request_metric_entry() {
   local path="$1"
-  local base metric_name metric_safe filter_id latest_value latest_timestamp statistic formatted_value description
+  local base metric_name metric_safe filter_id latest_value latest_timestamp window_start window_end statistic formatted_value description
 
   base="$(basename "$path" .json)"
   metric_name="$(metric_label_from_json "$path")"
@@ -447,16 +501,20 @@ describe_request_metric_entry() {
 
   latest_value="$(latest_datapoint_value "$path")"
   latest_timestamp="$(latest_datapoint_timestamp "$path")"
+  window_start="$(subtract_seconds_from_timestamp "$latest_timestamp" "$REQUEST_METRIC_PERIOD_SECONDS")"
+  window_end="$(timestamp_to_utc "$latest_timestamp")"
   statistic="$(request_metric_statistic "$metric_name")"
   formatted_value="$(format_request_metric_value "$metric_name" "$latest_value")"
   description="$(request_metric_description "$metric_name")"
 
-  printf -- '- %s for filter "%s": %s at %s (%s). %s.\n' \
+  printf -- '- %s for filter "%s": %s during %s to %s (%s over a %s datapoint period). %s.\n' \
     "$metric_name" \
     "$(humanize_filter_id "$filter_id")" \
     "$formatted_value" \
-    "$latest_timestamp" \
+    "$window_start" \
+    "$window_end" \
     "$statistic" \
+    "$(duration_human "$REQUEST_METRIC_PERIOD_SECONDS")" \
     "$description"
 }
 
@@ -831,6 +889,8 @@ write_summary_section() {
   report_line
   report_line "Latest request metric datapoints:"
   report_line "These values come from the most recent CloudWatch datapoint returned for each metric."
+  report_line "Days queried from CloudWatch: $DAYS"
+  report_line "Datapoint period for request metrics: $(duration_human "$REQUEST_METRIC_PERIOD_SECONDS")"
   report_line "Count metrics use totals for the datapoint period, and latency metrics use averages in milliseconds."
   for path in "$JSON_DIR"/request_*.json; do
     [ -f "$path" ] || continue
