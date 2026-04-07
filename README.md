@@ -54,6 +54,7 @@ The `reports/` directory is ignored by Git so audit output does not get committe
 │   └── test.sh
 ├── aws-region-audit-report.sh
 ├── aws-s3-cloudwatch-report.sh
+├── LICENSE
 ├── Makefile
 └── README.md
 ```
@@ -61,6 +62,7 @@ The `reports/` directory is ignored by Git so audit output does not get committe
 Key files:
 - `aws-region-audit-report.sh`: regional AWS audit report generator
 - `aws-s3-cloudwatch-report.sh`: focused S3 CloudWatch report generator for one bucket
+- `LICENSE`: MIT license for the repository
 - `tests/`: mock-based shell tests
 - `.github/workflows/ci.yml`: GitHub Actions CI workflow
 
