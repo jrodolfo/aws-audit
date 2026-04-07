@@ -1,5 +1,10 @@
-reports/*
+reports/**
+!reports/
 !reports/.gitkeep
+!reports/audit/
+!reports/audit/.gitkeep
+!reports/s3-cloudwatch/
+!reports/s3-cloudwatch/.gitkeep
 .idea
 .DS_Store
 notes.txt

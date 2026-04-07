@@ -12,10 +12,16 @@ It is designed for a practical cleanup workflow:
 
 ## What It Produces
 
-Each run writes a timestamped folder under `reports/`, for example:
+Each regional audit run writes a timestamped folder under `reports/audit/`, for example:
 
 ```text
-reports/aws-audit-2026-04-06_16-34-25/
+reports/audit/aws-audit-2026-04-06_16-34-25/
+```
+
+Each S3 CloudWatch run writes a timestamped folder under `reports/s3-cloudwatch/`, for example:
+
+```text
+reports/s3-cloudwatch/s3-cloudwatch-2026-04-06_20-35-38/
 ```
 
 That folder contains:
@@ -154,7 +160,7 @@ The script:
 - queries bucket request metrics from the bucket region
 - writes a readable `report.txt`
 - writes a machine-readable `summary.json`
-- saves raw JSON and stderr details under `reports/`
+- saves raw JSON and stderr details under `reports/s3-cloudwatch/`
 
 Notes for S3 metrics:
 - storage metrics such as `BucketSizeBytes` and `NumberOfObjects` are daily metrics
