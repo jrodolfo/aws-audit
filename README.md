@@ -121,6 +121,22 @@ Filter by service groups:
 ./aws-region-audit-report.sh --services sagemaker,ec2
 ```
 
+Service filter keys:
+- `sts`
+- `aws-config`
+- `s3`
+- `ec2`
+- `elbv2`
+- `rds`
+- `lambda`
+- `ecs`
+- `eks`
+- `sagemaker`
+- `opensearch`
+- `secretsmanager`
+- `logs`
+- `tagging`
+
 Run local tests:
 
 ```bash
@@ -192,7 +208,7 @@ The script currently checks:
 
 ## S3 CloudWatch Script
 
-Use [`aws-s3-cloudwatch-report.sh`](/Users/jrodolfo/workspace/shell/aws-audit/aws-s3-cloudwatch-report.sh) when you want a CloudWatch-focused report for one bucket.
+Use [`aws-s3-cloudwatch-report.sh`](./aws-s3-cloudwatch-report.sh) when you want a CloudWatch-focused report for one bucket.
 
 Example:
 
@@ -218,22 +234,6 @@ Notes for S3 metrics:
 - storage metrics such as `BucketSizeBytes` and `NumberOfObjects` are daily metrics
 - request metrics may not exist unless S3 request metrics are enabled for the bucket
 - a static website bucket is a good fit for checking request counts, errors, bytes downloaded, and object counts
-
-Service filter keys:
-- `sts`
-- `aws-config`
-- `s3`
-- `ec2`
-- `elbv2`
-- `rds`
-- `lambda`
-- `ecs`
-- `eks`
-- `sagemaker`
-- `opensearch`
-- `secretsmanager`
-- `logs`
-- `tagging`
 
 ## Notes
 
