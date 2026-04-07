@@ -21,6 +21,9 @@ SUCCESS_COUNT=0
 FAILURE_COUNT=0
 SKIPPED_COUNT=0
 RUN_SUFFIX=0
+ACCOUNT_ID="n/a"
+CALLER_ARN="n/a"
+CALLER_USER_ID="n/a"
 TEXT_REPORT=""
 SUMMARY_JSON=""
 JSON_DIR=""
@@ -386,6 +389,18 @@ metric_label_from_json() {
   "$JQ_BIN" -r '.Label // ""' "$path" 2>/dev/null
 }
 
+load_account_identity() {
+  local caller_identity_json="$JSON_DIR/sts_get_caller_identity.json"
+
+  if [ "$HAS_JQ" -ne 1 ] || [ ! -s "$caller_identity_json" ]; then
+    return 0
+  fi
+
+  ACCOUNT_ID="$("$JQ_BIN" -r '.Account // "n/a"' "$caller_identity_json" 2>/dev/null || printf 'n/a')"
+  CALLER_ARN="$("$JQ_BIN" -r '.Arn // "n/a"' "$caller_identity_json" 2>/dev/null || printf 'n/a')"
+  CALLER_USER_ID="$("$JQ_BIN" -r '.UserId // "n/a"' "$caller_identity_json" 2>/dev/null || printf 'n/a')"
+}
+
 request_metric_unit() {
   local metric_name="$1"
 
@@ -677,8 +692,17 @@ request_metric_statistic() {
 }
 
 collect_bucket_metadata() {
+  local caller_identity_json="$JSON_DIR/sts_get_caller_identity.json"
   local location_json="$JSON_DIR/bucket_location.json"
   local website_json="$JSON_DIR/bucket_website.json"
+
+  run_cmd \
+    "sts-get-caller-identity" \
+    "account" \
+    "$caller_identity_json" \
+    "$AWS_BIN" sts get-caller-identity --output json || true
+
+  load_account_identity
 
   log_console "Resolving S3 bucket region for: $BUCKET"
   if run_cmd \
@@ -886,6 +910,9 @@ collect_request_metrics() {
 write_report_header() {
   report_line "S3 CloudWatch bucket report"
   report_line "Generated at: $(date)"
+  report_line "AWS account ID: $ACCOUNT_ID"
+  report_line "AWS caller ARN: $CALLER_ARN"
+  report_line "AWS caller user ID: $CALLER_USER_ID"
   report_line "Bucket: $BUCKET"
   report_line "Bucket region: $BUCKET_REGION"
   report_line "Request metrics region: $REQUEST_REGION"
@@ -1143,6 +1170,9 @@ write_summary_json() {
     --arg bucket_region "$BUCKET_REGION" \
     --arg request_region "$REQUEST_REGION" \
     --arg storage_metrics_region "$STORAGE_METRICS_REGION" \
+    --arg account_id "$ACCOUNT_ID" \
+    --arg caller_arn "$CALLER_ARN" \
+    --arg caller_user_id "$CALLER_USER_ID" \
     --arg generated_at "$(date)" \
     --arg output_directory "$OUTDIR" \
     --arg report_path "$TEXT_REPORT" \
@@ -1160,6 +1190,9 @@ write_summary_json() {
       bucket_region: $bucket_region,
       request_region: $request_region,
       storage_metrics_region: $storage_metrics_region,
+      account_id: $account_id,
+      caller_arn: $caller_arn,
+      caller_user_id: $caller_user_id,
       generated_at: $generated_at,
       days: $days,
       output_directory: $output_directory,

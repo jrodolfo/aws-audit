@@ -34,6 +34,9 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "${service}:${command}:${metric_name}:${filter_id}" in
+  "sts:get-caller-identity::")
+    printf '%s\n' '{"Account":"123456789012","Arn":"arn:aws:iam::123456789012:user/test","UserId":"test-user"}'
+    ;;
   "s3api:get-bucket-location::")
     printf '%s\n' '{"LocationConstraint":"us-east-2"}'
     ;;
