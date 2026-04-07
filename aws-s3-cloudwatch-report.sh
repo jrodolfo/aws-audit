@@ -287,6 +287,179 @@ latest_datapoint_value() {
   ' "$path" 2>/dev/null || printf 'n/a'
 }
 
+latest_datapoint_timestamp() {
+  local path="$1"
+
+  if [ "$HAS_JQ" -ne 1 ] || [ ! -s "$path" ]; then
+    printf 'n/a'
+    return 0
+  fi
+
+  "$JQ_BIN" -r '
+    .Datapoints
+    | sort_by(.Timestamp)
+    | last
+    | .Timestamp // "n/a"
+  ' "$path" 2>/dev/null || printf 'n/a'
+}
+
+metric_label_from_json() {
+  local path="$1"
+
+  if [ "$HAS_JQ" -ne 1 ] || [ ! -s "$path" ]; then
+    printf ''
+    return 0
+  fi
+
+  "$JQ_BIN" -r '.Label // ""' "$path" 2>/dev/null
+}
+
+request_metric_unit() {
+  local metric_name="$1"
+
+  case "$metric_name" in
+    4xxErrors)
+      printf 'client-error responses'
+      ;;
+    5xxErrors)
+      printf 'server-error responses'
+      ;;
+    AllRequests)
+      printf 'total requests'
+      ;;
+    GetRequests)
+      printf 'GET requests'
+      ;;
+    PutRequests)
+      printf 'PUT requests'
+      ;;
+    PostRequests)
+      printf 'POST requests'
+      ;;
+    DeleteRequests)
+      printf 'DELETE requests'
+      ;;
+    HeadRequests)
+      printf 'HEAD requests'
+      ;;
+    BytesDownloaded)
+      printf 'bytes downloaded'
+      ;;
+    BytesUploaded)
+      printf 'bytes uploaded'
+      ;;
+    FirstByteLatency|TotalRequestLatency)
+      printf 'ms'
+      ;;
+    *)
+      printf 'value'
+      ;;
+  esac
+}
+
+request_metric_description() {
+  local metric_name="$1"
+
+  case "$metric_name" in
+    4xxErrors)
+      printf 'requests that returned an HTTP 4xx status code'
+      ;;
+    5xxErrors)
+      printf 'requests that returned an HTTP 5xx status code'
+      ;;
+    AllRequests)
+      printf 'all requests handled by this bucket metric filter'
+      ;;
+    GetRequests)
+      printf 'GET object requests handled by this bucket metric filter'
+      ;;
+    PutRequests)
+      printf 'PUT object requests handled by this bucket metric filter'
+      ;;
+    PostRequests)
+      printf 'POST requests handled by this bucket metric filter'
+      ;;
+    DeleteRequests)
+      printf 'DELETE requests handled by this bucket metric filter'
+      ;;
+    HeadRequests)
+      printf 'HEAD requests handled by this bucket metric filter'
+      ;;
+    BytesDownloaded)
+      printf 'total bytes sent from S3 to clients'
+      ;;
+    BytesUploaded)
+      printf 'total bytes sent by clients to S3'
+      ;;
+    FirstByteLatency)
+      printf 'average time until S3 returned the first byte'
+      ;;
+    TotalRequestLatency)
+      printf 'average end-to-end request time in S3'
+      ;;
+    *)
+      printf 'latest CloudWatch datapoint returned for this metric'
+      ;;
+  esac
+}
+
+format_request_metric_value() {
+  local metric_name="$1"
+  local value="$2"
+
+  if [ "$value" = "n/a" ] || [ -z "$value" ]; then
+    printf 'n/a'
+    return 0
+  fi
+
+  case "$metric_name" in
+    BytesDownloaded|BytesUploaded)
+      printf '%s %s (%s)' "$value" "$(request_metric_unit "$metric_name")" "$(bytes_human "$value")"
+      ;;
+    FirstByteLatency|TotalRequestLatency)
+      printf '%s %s' "$value" "$(request_metric_unit "$metric_name")"
+      ;;
+    4xxErrors|5xxErrors|AllRequests|GetRequests|PutRequests|PostRequests|DeleteRequests|HeadRequests)
+      printf '%s %s' "$value" "$(request_metric_unit "$metric_name")"
+      ;;
+    *)
+      printf '%s' "$value"
+      ;;
+  esac
+}
+
+humanize_filter_id() {
+  printf '%s' "$1" | tr '_-' '  '
+}
+
+describe_request_metric_entry() {
+  local path="$1"
+  local base metric_name metric_safe filter_id latest_value latest_timestamp statistic formatted_value description
+
+  base="$(basename "$path" .json)"
+  metric_name="$(metric_label_from_json "$path")"
+  if [ -z "$metric_name" ]; then
+    metric_name="${base##*_}"
+  fi
+  metric_safe="$(printf '%s' "$metric_name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_')"
+  filter_id="${base#request_}"
+  filter_id="${filter_id%_"$metric_safe"}"
+
+  latest_value="$(latest_datapoint_value "$path")"
+  latest_timestamp="$(latest_datapoint_timestamp "$path")"
+  statistic="$(request_metric_statistic "$metric_name")"
+  formatted_value="$(format_request_metric_value "$metric_name" "$latest_value")"
+  description="$(request_metric_description "$metric_name")"
+
+  printf -- '- %s for filter "%s": %s at %s (%s). %s.\n' \
+    "$metric_name" \
+    "$(humanize_filter_id "$filter_id")" \
+    "$formatted_value" \
+    "$latest_timestamp" \
+    "$statistic" \
+    "$description"
+}
+
 count_lines() {
   local value=0
   local line
@@ -657,13 +830,18 @@ write_summary_section() {
 
   report_line
   report_line "Latest request metric datapoints:"
+  report_line "These values come from the most recent CloudWatch datapoint returned for each metric."
+  report_line "Count metrics use totals for the datapoint period, and latency metrics use averages in milliseconds."
   for path in "$JSON_DIR"/request_*.json; do
     [ -f "$path" ] || continue
     if [ "$(basename "$path")" = "request_metrics_catalog.json" ]; then
       continue
     fi
-    latest_value="$(latest_datapoint_value "$path")"
-    report_line "- $(basename "$path" .json): $latest_value"
+    if json_has_datapoints "$path"; then
+      describe_request_metric_entry "$path" >> "$TEXT_REPORT"
+    else
+      report_line "- $(basename "$path" .json): metric definition found, but CloudWatch returned no datapoints"
+    fi
   done
 
   report_line

@@ -27,6 +27,13 @@ assert_dir_not_exists() {
   fi
 }
 
+assert_file_contains() {
+  if ! grep -Fq -- "$2" "$1"; then
+    printf 'expected file [%s] to contain [%s]\n' "$1" "$2" >&2
+    exit 1
+  fi
+}
+
 main() {
   local tmp_dir reports_dir outdir
 
@@ -54,6 +61,9 @@ main() {
   assert_eq "website-traffic" "$("$JQ_BIN" -r '.request_metric_configurations[0].id' "$outdir/summary.json")"
   assert_eq "2" "$("$JQ_BIN" -r '.request_metric_configurations[0].published_metric_names | length' "$outdir/summary.json")"
   assert_eq "1" "$(find "$reports_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
+  assert_file_contains "$outdir/report.txt" "These values come from the most recent CloudWatch datapoint returned for each metric."
+  assert_file_contains "$outdir/report.txt" "AllRequests for filter \"website traffic\": 25 total requests at 2026-04-06T00:00:00Z (Sum). all requests handled by this bucket metric filter."
+  assert_file_contains "$outdir/report.txt" "4xxErrors for filter \"website traffic\": 1 client-error responses at 2026-04-06T00:00:00Z (Sum). requests that returned an HTTP 4xx status code."
 
   if REPORTS_DIR="$reports_dir" TIMESTAMP_OVERRIDE="2026-04-06_00-10-00" "$SCRIPT_PATH" >/dev/null 2>&1; then
     printf 'expected missing bucket invocation to fail\n' >&2
