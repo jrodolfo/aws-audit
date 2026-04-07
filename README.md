@@ -1,6 +1,9 @@
 # AWS Region Audit
 
-[![ci](https://github.com/jrodolfo/aws-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/jrodolfo/aws-audit/actions/workflows/ci.yml)
+[![ci](https://github.com/jrodolfo/aws-audit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jrodolfo/aws-audit/actions/workflows/ci.yml)
+![shell](https://img.shields.io/badge/shell-bash-89e051)
+![license](https://img.shields.io/badge/license-MIT-blue)
+![aws](https://img.shields.io/badge/aws-cloud-a1662f)
 
 Shell-based AWS audit helper for checking common resources across AWS regions, defaulting to `us-east-1` and `us-east-2`.
 
@@ -35,6 +38,31 @@ That folder contains:
 - `meta/status.tsv`: machine-readable command status metadata
 
 The `reports/` directory is ignored by Git so audit output does not get committed.
+
+## Project structure
+
+```text
+.
+├── .github/workflows/
+│   └── ci.yml
+├── reports/
+│   ├── audit/
+│   └── s3-cloudwatch/
+├── tests/
+│   ├── mock-s3-cloudwatch-aws.sh
+│   ├── test-s3-cloudwatch.sh
+│   └── test.sh
+├── aws-region-audit-report.sh
+├── aws-s3-cloudwatch-report.sh
+├── Makefile
+└── README.md
+```
+
+Key files:
+- `aws-region-audit-report.sh`: regional AWS audit report generator
+- `aws-s3-cloudwatch-report.sh`: focused S3 CloudWatch report generator for one bucket
+- `tests/`: mock-based shell tests
+- `.github/workflows/ci.yml`: GitHub Actions CI workflow
 
 ## Requirements
 
@@ -216,3 +244,14 @@ Service filter keys:
 - Skipped commands are recorded explicitly when you use `--services`.
 - The script is intentionally defensive and continues after individual command failures.
 - If AWS permissions are missing or a service is unavailable, the failure is recorded in the report and under `stderr/`.
+
+## Contact
+
+For issues or inquiries, feel free to contact the maintainer:
+
+- Name: Rod Oliveira
+- Role: Software Developer
+- Email: jrodolfo@gmail.com
+- GitHub: https://github.com/jrodolfo
+- LinkedIn: https://www.linkedin.com/in/rodoliveira
+- Webpage: https://jrodolfo.net
