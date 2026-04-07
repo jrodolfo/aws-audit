@@ -264,6 +264,16 @@ count_lines() {
   printf '%s' "$value"
 }
 
+json_has_datapoints() {
+  local path="$1"
+
+  if [ "$HAS_JQ" -ne 1 ] || [ ! -s "$path" ]; then
+    return 1
+  fi
+
+  [ "$("$JQ_BIN" -r '(.Datapoints // []) | length' "$path" 2>/dev/null || printf '0')" -gt 0 ]
+}
+
 discover_storage_type_values() {
   local path="$1"
   local metric_name="$2"
@@ -587,13 +597,21 @@ write_summary_section() {
   for path in "$JSON_DIR"/storage_bucket_size_bytes_*.json; do
     [ -f "$path" ] || continue
     latest_value="$(latest_datapoint_value "$path")"
-    report_line "- $(basename "$path" .json): $latest_value bytes ($(bytes_human "$latest_value"))"
+    if json_has_datapoints "$path"; then
+      report_line "- $(basename "$path" .json): $latest_value bytes ($(bytes_human "$latest_value"))"
+    else
+      report_line "- $(basename "$path" .json): metric definition found, but CloudWatch returned no datapoints"
+    fi
   done
 
   for path in "$JSON_DIR"/storage_number_of_objects_*.json; do
     [ -f "$path" ] || continue
     latest_value="$(latest_datapoint_value "$path")"
-    report_line "- $(basename "$path" .json): $latest_value objects"
+    if json_has_datapoints "$path"; then
+      report_line "- $(basename "$path" .json): $latest_value objects"
+    else
+      report_line "- $(basename "$path" .json): metric definition found, but CloudWatch returned no datapoints"
+    fi
   done
 
   report_line
